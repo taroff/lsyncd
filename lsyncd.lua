@@ -3257,6 +3257,32 @@ local Inotify = ( function
 	--
 	local syncRoots = { }
 
+	local limiter = {
+		limit = 5000,
+		current = 0,
+
+		add = function(self)
+			self.current = self.current + 1
+		end,
+
+		isLimitReached = function(self)
+			if (self.limit == self.current) then
+				return true
+			end
+
+			return false
+		end,
+
+		check = function(self)
+			if self:isLimitReached() then
+				log( 'Normal', 'addWatch() limit sleep 2 secs after 5k.' )
+				os.execute("sleep 2")
+				log( 'Normal', 'Continue addWatches...' )
+				self.current = 0
+			end
+		end
+	}
+
 	--
 	-- Stops watching a directory
 	--
@@ -3289,8 +3315,14 @@ local Inotify = ( function
 	--
 	local function addWatch
 	(
-		path  -- absolute path of directory to observe
-	)
+		path,  -- absolute path of directory to observe
+		needToLimit
+	)	
+		if (needToLimit) then
+			limiter:add()
+			limiter:check()
+		end
+
 		log( 'Function', 'Inotify.addWatch( ', path, ' )' )
 
 		if not Syncs.concerns( path )
@@ -3339,7 +3371,7 @@ local Inotify = ( function
 		do
 			if isdir
 			then
-				addWatch( path .. dirname .. '/' )
+				addWatch( path .. dirname .. '/', needToLimit )
 			end
 		end
 	end
@@ -3350,7 +3382,8 @@ local Inotify = ( function
 	local function addSync
 	(
 		sync,     -- object to receive events.
-		rootdir   -- root dir to watch
+		rootdir,   -- root dir to watch
+		needToLimit
 	)
 		if syncRoots[ sync ]
 		then
@@ -3359,7 +3392,7 @@ local Inotify = ( function
 
 		syncRoots[ sync ] = rootdir
 
-		addWatch( rootdir )
+		addWatch( rootdir, needToLimit )
 	end
 
 	--
@@ -4857,7 +4890,7 @@ function runner.initialize( firstTime )
 	do
 		if s.config.monitor == 'inotify'
 		then
-			Inotify.addSync( s, s.source )
+			Inotify.addSync( s, s.source, true )
 		elseif s.config.monitor == 'fsevents'
 		then
 			Fsevents.addSync( s, s.source )
